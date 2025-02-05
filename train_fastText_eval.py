@@ -5,18 +5,6 @@ import os
 import fasttext
 from datasets import Dataset, concatenate_datasets
 
-labels = [
-    "Salud",
-    "Tecnología",
-    "Industrias Creativas y Deportes",
-    "Educación y Académico",
-    "Político y Legal",
-    "Sin coincidencia",
-    "Negocios y Finanzas",
-    "Agricultura"
-]
-
-
 def normalize_data(dataset, size, labels):
     subsets = []
     N = int(size / len(labels))
