@@ -1,1 +1,1 @@
-# fasttext-classifiers
+# FastText Classifiers
