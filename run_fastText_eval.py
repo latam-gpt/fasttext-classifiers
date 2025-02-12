@@ -1,22 +1,24 @@
 import argparse
-import os
 import logging
+import os
 import shutil
-from fasttext import load_model, FastText
-from datasets import Dataset, concatenate_datasets, load_dataset, load_from_disk, config
-from tqdm import tqdm
 from glob import glob
 
-# This line prevents the warning from fasttext (see https://github.com/facebookresearch/fastText/issues/1067)
+from datasets import concatenate_datasets, config, load_dataset, load_from_disk
+from fasttext import FastText, load_model
+from tqdm import tqdm
+
+# This line prevents the warning from fasttext
+# (https://github.com/facebookresearch/fastText/issues/1067)
 FastText.eprint = lambda *args, **kwargs: None
 
 logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s"
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 
 load = False
 models = []
+
 
 def get_labels(sample, model_path):
     global load
@@ -34,9 +36,9 @@ def get_labels(sample, model_path):
         label_name = model_file.split("_")[1]
 
         current_model = models[index]
-        label = current_model.predict(sample['texto'].replace('\n', ' '))
+        label = current_model.predict(sample["texto"].replace("\n", " "))
 
-        sample[label_name] = label[0][0].replace('__label__', '')
+        sample[label_name] = label[0][0].replace("__label__", "")
         index += 1
 
     return sample
@@ -72,10 +74,9 @@ def concatenate_all(datasets):
 
     for dataset in datasets[1:]:
         try:
-            final_dataset = concatenate_datasets([
-                final_dataset,
-                load_from_disk(dataset)["train"]
-            ])
+            final_dataset = concatenate_datasets(
+                [final_dataset, load_from_disk(dataset)["train"]]
+            )
             shutil.rmtree(dataset)
 
         except Exception as e:
@@ -103,7 +104,7 @@ def main(args):
 
         logging.info(f"Processing file {file_name}")
 
-        arrow = process_arrow(file_path, args.models_path,args.n_processes)
+        arrow = process_arrow(file_path, args.models_path, args.n_processes)
         if arrow:
             arrow.save_to_disk(processed_file)
             all_files.append(processed_file)
@@ -113,7 +114,7 @@ def main(args):
     if all_files:
         logging.info(f"Processed {len(all_files)} files")
         final_dataset = concatenate_all(all_files)
-        
+
         os.rmdir(args.output_path)
         final_dataset.save_to_disk(args.output_path)
 
@@ -123,7 +124,7 @@ def main(args):
         logging.info("No files have been processed")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
     parser.add_argument(
