@@ -1,0 +1,13 @@
+A continuación se presenta un extracto de una página web. Analiza el extracto y determina si la información se refiere a <LABEL>.
+
+Tu respuesta debe cumplir con el siguiente formato:
+
+- Proporciona una breve explicación que justifique la referencia a <LABEL>.
+- Si no se puede identificar una referencia en el extracto, indica "Sin-coincidencia".
+
+**iMPORTANTE**
+
+Finaliza siempre con la línea "LABEL: <label>", donde <label> es "<LABEL>" o "Sin-coincidencia". No incluyas explicaciones adicionales en esta línea.
+Texto:
+
+<TEXT>

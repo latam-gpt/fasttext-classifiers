@@ -1,174 +1,107 @@
 import argparse
 import os
-
+import re
+import json
 import fasttext
 from datasets import Dataset, concatenate_datasets
 
-
-def normalize_data(dataset, size, labels):
-    subsets = []
-    N = int(size / len(labels))
-
-    for label in labels:
-        subset = dataset.filter(lambda x: x["label"] == label)
-        subset = subset.shuffle(seed=42).select(range(N))
-        subsets.append(subset)
-
-    return concatenate_datasets(subsets).shuffle(seed=42)
-
-
-def compute_metrics(model, model_path, labels):
-    valid_path = f"{model_path}/data.valid"
-    with open(valid_path, "r", encoding="utf-8") as f:
-        data = f.readlines()
-
-    for label in labels:
-        label_tag = f"__label__{label.replace(' ', '-')}"
-        filtered_lines = [line for line in data if label_tag in line]
-
-        with open(f"{model_path}/data_valid.txt", "w", encoding="utf-8") as f:
-            f.writelines(filtered_lines)
-
-        os.system(
-            f"head -n {len(filtered_lines)} {model_path}/data_valid.txt > {valid_path}"
-        )
-        result = model.test(valid_path)
-        print(f"Label: {label}, Precision: {result[1]}, Recall: {result[2]}")
-
+def preprocess_text(text: str) -> str:
+    text = re.sub(r'http\S+', '', text)
+    text = re.sub(r'\S+@\S+', '', text)
+    text = re.sub(r'[^\w\s]', ' ', text)
+    text = re.sub(r'\b\d+\b', ' ', text)
+    text = re.sub(r'([.!?,\'\"/()])', r' \1 ', text)
+    text = text.lower()
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
 
 def main(args):
-    data_raw = Dataset.load_from_disk(args.dataset_path)
-    N = len(data_raw)
-    labels = data_raw.unique("label")
 
-    dataset = (
-        normalize_data(data_raw, args.size, labels)
-        if args.normalize
-        else data_raw.shuffle(seed=42).select(range(args.size))
-    )
-    dataset = dataset.map(
-        lambda x: {
-            "text": x["text"],
-            "label": f"__label__{x['label'].replace(' ', '-')}",
-        }
-    )
+    with open(args.json_path) as f:
+        data = json.load(f)
+    text_dataset = Dataset.load_from_disk(args.dataset_path)
+    print(f"Loaded {len(data)} labelled samples from {len(text_dataset)}")
 
-    train_file = os.path.join(args.model_path, "data.train")
-    valid_file = os.path.join(args.model_path, "data.valid")
+    combined_data_list = []
+    combined_antidata_list = []
 
-    if args.all:
-        data_raw = data_raw.map(
-            lambda x: {
-                "text": x["text"],
-                "label": f"__label__{x['label'].replace(' ', '-')}",
-            }
-        )
-        dataset_train = dataset
-        train_texts = set(x["text"] for x in dataset_train)
-        dataset_valid = data_raw.filter(lambda x: x["text"] not in train_texts)
+    for val in range(len(data)):
+    
+        label = data[f"{val}"]["Label"]
+        if not label:
+            continue
 
-        with open(f"{args.model_path}/data_train.txt", "w", encoding="utf-8") as f:
-            for sample in dataset_train:
-                f.write(
-                    str(sample["label"])
-                    + " "
-                    + str(sample["text"].replace("\n", " "))
-                    + "\n"
-                )
+        if args.label == label:
+            combined_data_list.append({"text": text_dataset[val]["text"][:4000], "Label": args.label})
+        else:
+            combined_antidata_list.append({"text": text_dataset[val]["text"][:4000], "Label": "Not_" + args.label})
+        
+    data_label = Dataset.from_list(combined_data_list)
+    size = len(data_label)
+    
+    antidata = Dataset.from_list(combined_antidata_list).select(range(min(len(combined_antidata_list),size)))
 
-        with open(f"{args.model_path}/data_valid.txt", "w", encoding="utf-8") as f:
-            for sample in dataset_valid:
-                f.write(
-                    str(sample["label"])
-                    + " "
-                    + str(sample["text"].replace("\n", " "))
-                    + "\n"
-                )
+    data_neutra = Dataset.load_from_disk(args.neutral_path).shuffle().select(range(size-len(antidata)))
+    data_neutra = data_neutra.map(lambda x: {"text":x["texto"]  ,"Label": "Not_" + args.label})
 
-        os.system(
-            f"head -n {args.size} {args.model_path}/data_train.txt > {train_file}"
-        )
-        os.system(
-            f"head -n {N - args.size} {args.model_path}/data_valid.txt > {valid_file}"
-        )
+    dataset = concatenate_datasets([data_label, antidata, data_neutra])
+    dataset = dataset.map(lambda x: {"text": preprocess_text(x["text"]), "Label": f"__label__{x['Label'].replace(' ', '-')}"})
+    dataset = dataset.shuffle(seed=41)
 
-    else:
-        with open(f"{args.model_path}/data.txt", "w", encoding="utf-8") as f:
-            for sample in dataset:
-                f.write(
-                    str(sample["label"])
-                    + " "
-                    + str(sample["text"].replace("\n", " "))
-                    + "\n"
-                )
+    with open(f"{args.model_path}/data.txt", "w", encoding="utf-8") as f:
+        for sample in dataset:
+            f.write(str(sample['Label']) + " " + str(sample['text'].replace("\n", " ")) + "\n")
 
-        os.system(
-            f"head -n {int(args.size * 0.8)} {args.model_path}/data.txt > {train_file}"
-        )
-        os.system(
-            f"tail -n {int(args.size * 0.2)} {args.model_path}/data.txt > {valid_file}"
-        )
+    os.system(f"head -n {int(size*2 * 0.8)} {args.model_path}/data.txt > {args.model_path}/data.train")
+    os.system(f"tail -n {int(size*2 * 0.2)} {args.model_path}/data.txt > {args.model_path}/data.valid")
 
-    if args.automatic:
-        model = fasttext.train_supervised(
-            input=f"{args.model_path}/data.train",
-            autotuneValidationFile=f"{args.model_path}/data.valid",
-            autotuneDuration=600,
-        )
-        model.save_model(f"{args.model_path}/auto_model_{args.size}.bin")
-
-    else:
-        model = fasttext.train_supervised(
-            input=f"{args.model_path}/data.train",
-            epoch=args.num_epochs,
-            lr=args.learning_rate,
-            wordNgrams=args.n_grams,
-        )
-        model.save_model(f"{args.model_path}/model_{args.size}.bin")
-
-    model_path = (
-        f"{args.model_path}/{'auto_' if args.automatic else ''}model_{args.size}.bin"
-    )
-    model.save_model(model_path)
-
-    print(model.test(f"{args.model_path}/data.valid"))
-    compute_metrics(model, args.model_path, labels)
+    model = fasttext.train_supervised(input=f"{args.model_path}/data.train",  lr=0.1, epoch=25, wordNgrams=2)
+    model.save_model(args.model_path + f'/{args.label}{size//1000}k.bin')
+    
+    res =model.test(f"{args.model_path}/data.valid")
+    print(f"Metrics: {res}")
+    print(f"Model saved to {args.model_path}/{args.label}{size//1000}k.bin")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Configure FastText training settings")
+
     parser.add_argument(
-        "--model_path", type=str, required=True, help="Directory to save model"
+        "--json_path",
+        type=str,
+        default="Data/labelled.json",
+        help="Path to the JSON file with the labelled data"
     )
 
     parser.add_argument(
         "--dataset_path",
         type=str,
-        default="Data/labelled_dataset",
-        help="Path to the directory file containing the dataset",
+        default="Data/Dataset_of_the_labels",
+        help="Path to the dataset"
     )
 
     parser.add_argument(
-        "--num_epochs", type=int, default=5, help="Number of training epochs"
+        "--neutral_path",
+        type=str,
+        default="Data/Neutro",
+        help="Path to the neutral dataset"
     )
     parser.add_argument(
-        "--learning_rate", type=float, default=0.1, help="Learning rate for training"
+        "--model_path",
+        type=str,
+        required=True,
+        help="Directory to save model"
     )
 
     parser.add_argument(
-        "--n_grams", type=int, default=1, help="Number of n-grams to use"
+        "--label",
+        type=str,
+        required=True,
+        help="Label to train the model on"
     )
 
-    parser.add_argument("--size", type=int, default=10000, help="Size of the model")
-
-    parser.add_argument("--normalize", default=False, help="Normalize the dataset")
-
-    parser.add_argument(
-        "--automatic", default=False, help="Use automatic hyperparameter tuning"
-    )
-
-    parser.add_argument("--all", default=False, help="Use all the dataset to validate")
     args = parser.parse_args()
     os.makedirs(args.model_path, exist_ok=True)
-
+    args.label = args.label.replace("_", " ")
     main(args)
+
