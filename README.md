@@ -23,7 +23,7 @@ The entire pipeline is a three-step process, with each step encapsulated in its 
 
 ---
 
-## Step 1: Labeling with an LLM
+## Labeling with an LLM
 
 This step is implemented in `label_with_llms.py`.
 
@@ -43,7 +43,7 @@ python label_with_llm.py \
 
 ---
 
-## Step 2: Train FastText
+## Train FastText
 
 Implemented in `train_fastText_eval.py`.
 
@@ -66,7 +66,7 @@ python train_fastText_eval.py \
 
 ---
 
-## Step 3: Apply FastText Classifier
+## Run FastText Classifier
 
 Implemented in `run_fastText_eval.py`.
 
